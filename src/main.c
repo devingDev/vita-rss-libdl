@@ -35,6 +35,28 @@ static int _dl_err_set = 0;
     } while (0)
 
 
+char* getFileNameWithoutExt(char *fullpath, char *result){
+    char *filename = sceClibStrrchr(fullpath, '/');
+    
+    if (filename != NULL) {
+        filename++;
+    } else {
+        filename = fullpath;
+    }
+    
+    char *dot = sceClibStrrchr(filename, '.');
+    int length = 0;
+    if (dot != NULL) {
+        length = dot -filename;
+    }else{
+        return NULL;
+    }
+
+    sceClibStrncpy(result, filename, length);
+    result[length] = '\0';
+    return result;
+}
+
 void *dlopen(const char *__file, int __mode)
 {
     // TODO: empty path = main module
@@ -71,12 +93,32 @@ void *dlopen(const char *__file, int __mode)
             return (void*)current;
         }
 
-        module_id = sceKernelLoadStartModule(fullpath, 0, NULL, 0, NULL, NULL);
-        if (module_id < 0)
-        {
-            set_dl_error("[libdl] sceKernelLoadStartModule(%s, 0, NULL, 0, NULL, NULL) error: 0x%08x\n", __file, module_id);
-            return NULL;
+        
+        // first check if exists already!
+        tai_module_info_t prinfo;
+        prinfo.size = sizeof(tai_module_info_t);
+        char extractedModuleName[256];
+        int alreadyLoaded = 0;
+        if(getFileNameWithoutExt(fullpath, extractedModuleName)!=NULL){
+            sceClibPrintf("[libdl] Searching module %s\n", extractedModuleName);
+            int res = taiGetModuleInfo(extractedModuleName, &prinfo);
+            alreadyLoaded = res == 0 ? 1 : 0; //1 loaded; 0 not loaded
+            if(alreadyLoaded){
+                module_id = prinfo.modid;
+                sceClibPrintf("[libdl] Found already loaded module with id: %d\n", module_id);
+            }
         }
+        if(alreadyLoaded == 0){
+            sceClibPrintf("[libdl] Loading module %s\n", fullpath);
+            module_id = sceKernelLoadStartModule(fullpath, 0, NULL, 0, NULL, NULL);
+            if (module_id < 0)
+            {
+                set_dl_error("[libdl] sceKernelLoadStartModule(%s, 0, NULL, 0, NULL, NULL) error: 0x%08x\n", __file, module_id);
+                return NULL;
+            }
+        }
+
+        
     }
 
     module_ref_t *module = (module_ref_t*) malloc(sizeof(module_ref_t));
